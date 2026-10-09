@@ -42,7 +42,7 @@ if(u.pathname==='/api/health'&&req.method==='GET')return json(res,200,{ok:true,s
 if(u.pathname==='/api/register'&&req.method==='POST'){
 const d=await readBody(req,12000),name=clean(d.name,60),email=clean(d.email,254).toLowerCase(),password=d.password,location=clean(d.location,80)||'Philippines';
 if(name.length<2)return json(res,400,{ok:false,error:'NAME_MUST_BE_AT_LEAST_2_CHARACTERS'});
-if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))return json(res,400,{ok:false,error:'VALID_EMAIL_REQUIRED'});
+if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json(res,400,{ok:false,error:'VALID_EMAIL_REQUIRED'});
 if(typeof password!=='string'||password.length<10||password.length>200)return json(res,400,{ok:false,error:'PASSWORD_MUST_BE_10_TO_200_CHARACTERS'});
 if(db.users.some(x=>x.email===email))return json(res,409,{ok:false,error:'EMAIL_ALREADY_REGISTERED'});
 const p=await hashPassword(password),user={id:id(12),name,location,email,passwordSalt:p.salt,passwordHash:p.hash,createdAt:Date.now()};
@@ -63,7 +63,7 @@ if(u.pathname==='/api/listings'&&req.method==='GET')return json(res,200,{ok:true
 if(u.pathname==='/api/listings'&&req.method==='POST'){
 const user=requireUser(req,res);if(!user)return;const d=await readBody(req,12000000),name=clean(d.name,120);if(!name)return json(res,400,{ok:false,error:'CARD_NAME_REQUIRED'});
 const item={id:id(10),ownerId:user.id,name,set:clean(d.set,120),price:Math.max(0,Number(d.price)||0),mode:['Sale','Trade','Both'].includes(d.mode)?d.mode:'Both',condition:clean(d.condition,60)||'Near Mint',location:user.location,seller:user.name,description:clean(d.description,1200),wants:clean(d.wants,500),photo:'',createdAt:Date.now()};
-if(d.image&&typeof d.image==='object'&&typeof d.image.data==='string'){const ext=mimeExt(d.image.type);if(!ext)return json(res,400,{ok:false,error:'IMAGE_TYPE_NOT_SUPPORTED'});const buf=Buffer.from(d.image.data,'base64');if(buf.length>5*1024*1024)return json(res,413,{ok:false,error:'IMAGE_TOO_LARGE'});const valid=(ext==='jpg'&&buf[0]===255&&buf[1]===216)||(ext==='png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))||(ext==='webp'&&buf.toString('ascii',8,12)==='WEBP');if(!valid)return json(res,400,{ok:false,error:'IMAGE_CONTENT_DOES_NOT_MATCH_TYPE'});const fn=item.id+'-'+clean(d.image.name,80).replace(/[^a-zA-Z0-9._-]+/g,'-')+'.'+ext;fs.writeFileSync(path.join(UPLOADS,fn),buf);item.photo='/uploads/'+fn}
+if(d.image&&typeof d.image==='object'&&typeof d.image.data==='string'){const ext=mimeExt(d.image.type);if(!ext)return json(res,400,{ok:false,error:'IMAGE_TYPE_NOT_SUPPORTED'});const buf=Buffer.from(d.image.data,'base64');if(buf.length>5*1024*1024)return json(res,413,{ok:false,error:'IMAGE_TOO_LARGE'});const valid=(ext==='jpg'&&buf[0]===255&&buf[1]===216)||(ext==='png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(ext==='webp'&&buf.toString('ascii',8,12)==='WEBP');if(!valid)return json(res,400,{ok:false,error:'IMAGE_CONTENT_DOES_NOT_MATCH_TYPE'});const fn=item.id+'-'+clean(d.image.name,80).replace(/[^a-zA-Z0-9._-]+/g,'-')+'.'+ext;fs.writeFileSync(path.join(UPLOADS,fn),buf);item.photo='/uploads/'+fn}
 db.listings.push(item);save();return json(res,201,{ok:true,listing:listingView(item)});
 }
 if(u.pathname.startsWith('/api/listings/')&&req.method==='GET'){const item=db.listings.find(x=>x.id===decodeURIComponent(u.pathname.split('/').pop()));return item?json(res,200,{ok:true,listing:listingView(item)}):json(res,404,{ok:false,error:'NOT_FOUND'})}
