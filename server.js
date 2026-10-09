@@ -8,12 +8,8 @@ const PORT = Number(process.env.PORT || 10000), HOST = '0.0.0.0';
 const ROOT = __dirname, PUBLIC = path.join(ROOT,'public'), UPLOADS = process.env.UPLOADS_DIR || path.join(ROOT,'uploads'), DATA_FILE = process.env.DATA_FILE || path.join(ROOT,'data.json');
 const SESSION_MS = 7*24*60*60*1000;
 fs.mkdirSync(UPLOADS,{recursive:true});
-const seed=[
-{id:'seed-1',name:'Charizard ex',set:'Obsidian Flames',price:4500,mode:'Both',condition:'Near Mint',location:'Manila',seller:'Marcus',photo:'',description:'Clean copy. Open to serious trade offers.',wants:'Umbreon, Eeveelutions',createdAt:Date.now()-400000},
-{id:'seed-2',name:'Umbreon VMAX',set:'Evolving Skies',price:9200,mode:'Trade',condition:'Near Mint',location:'Quezon City',seller:'Sarah',photo:'',description:'Looking for Charizard or vintage.',wants:'Charizard, vintage',createdAt:Date.now()-300000},
-{id:'seed-3',name:'Pikachu VMAX',set:'Vivid Voltage',price:1800,mode:'Sale',condition:'Lightly Played',location:'Makati',seller:'Ken',photo:'',description:'Great binder card.',wants:'',createdAt:Date.now()-200000},
-{id:'seed-4',name:'Mew ex',set:'151',price:1200,mode:'Both',condition:'Near Mint',location:'Taguig',seller:'Jessa',photo:'',description:'Trade preferred.',wants:'Pikachu, Eevee',createdAt:Date.now()-100000}];
-function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings:seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[]}}}
+const seed=[];
+function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings.filter(x=>!/^seed-\\d+$/.test(String(x.id||''))):seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[]}}}
 let db=load();
 function save(){const t=DATA_FILE+'.tmp';fs.writeFileSync(t,JSON.stringify(db),{mode:0o600});fs.renameSync(t,DATA_FILE)}
 function id(n=24){return crypto.randomBytes(n).toString('hex')}
