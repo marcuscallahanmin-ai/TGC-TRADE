@@ -30,3 +30,10 @@ TGC TRADE is a Node.js community trading-card marketplace MVP.
 - Listing media supports JPEG, PNG, WebP images (up to 5 MB after browser compression) and MP4/WebM videos (up to 8 MB). Video playback is available in listing cards/details. Messaging and offer submission are not implemented yet; the current offer button is only a placeholder.
 - Existing demo listings remain visible and are not owned by registered accounts. New listings have authenticated ownership.
 - The app has not been deployed or integration-tested by this change. Test registration, login, logout, profile editing, listing/image creation, and wants on the target host before treating it as production-ready.
+
+## Deploy to Render
+
+1. In Render, choose **New + → Blueprint** and connect this GitHub repository.
+2. Render reads `render.yaml` and creates the `tgc-trade` web service using `npm install` and `npm start`.
+3. After the first deploy, open the service URL and verify `/api/health` returns JSON with `"ok":true`.
+4. This blueprint uses Render's free plan for initial testing. **Do not use it for real customer accounts or valuable uploads yet:** the free service has an ephemeral filesystem, so `data.json` and uploaded media can disappear after a restart, redeploy, or instance replacement. Durable storage requires a paid persistent disk or moving the data/media to a managed database/object store. Do not upgrade or add paid resources without confirming the cost first.
