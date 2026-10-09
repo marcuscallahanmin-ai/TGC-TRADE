@@ -9,7 +9,7 @@ const ROOT = __dirname, PUBLIC = path.join(ROOT,'public'), UPLOADS = process.env
 const SESSION_MS = 7*24*60*60*1000;
 fs.mkdirSync(UPLOADS,{recursive:true});
 const seed=[];
-function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings.filter(x=>!/^seed-\\d+$/.test(String(x.id||''))):seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[]}}}
+function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings.filter(x=>!/^seed-\d+$/.test(String(x.id||''))):seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[]}}}
 let db=load();
 function save(){const t=DATA_FILE+'.tmp';fs.writeFileSync(t,JSON.stringify(db),{mode:0o600});fs.renameSync(t,DATA_FILE)}
 function id(n=24){return crypto.randomBytes(n).toString('hex')}
