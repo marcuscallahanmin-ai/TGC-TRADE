@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const scrypt = promisify(crypto.scrypt);
 const PORT = Number(process.env.PORT || 10000), HOST = '0.0.0.0';
-const ROOT = __dirname, PUBLIC = path.join(ROOT,'public'), UPLOADS = path.join(ROOT,'uploads'), DATA_FILE = path.join(ROOT,'data.json');
+const ROOT = __dirname, PUBLIC = path.join(ROOT,'public'), UPLOADS = process.env.UPLOADS_DIR || path.join(ROOT,'uploads'), DATA_FILE = process.env.DATA_FILE || path.join(ROOT,'data.json');
 const SESSION_MS = 7*24*60*60*1000;
 fs.mkdirSync(UPLOADS,{recursive:true});
 const seed=[
