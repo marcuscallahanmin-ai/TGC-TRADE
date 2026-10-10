@@ -21,7 +21,29 @@ function cookie(req,name){const x=(req.headers.cookie||'').split(';').map(v=>v.t
 function secure(req){return req.headers['x-forwarded-proto']==='https'||!!req.socket.encrypted}
 function cookieHeader(req,v,age){return 'tgc_session='+encodeURIComponent(v)+'; Path=/; HttpOnly; SameSite=Lax; Max-Age='+age+(secure(req)?'; Secure':'')}
 function sessionFor(req){const token=cookie(req,'tgc_session');if(!token)return null;const h=crypto.createHash('sha256').update(token).digest('hex');const s=db.sessions.find(x=>x.tokenHash===h&&x.expiresAt>Date.now());return s?db.users.find(u=>u.id===s.userId)||null:null}
-function publicUser(u){return {id:u.id,name:u.name,location:u.location,profilePhoto:u.profilePhoto||'',createdAt:u.createdAt}}
+function progressFor(u){
+ const xp=Math.max(0,Number(u.xp)||0),thresholds=[0,100,250,500,900,1400,2000,2800,3800,5000];
+ let level=1;for(let i=1;i<thresholds.length;i++){if(xp>=thresholds[i])level=i+1;else break}
+ const titles=['New Collector','Card Scout','Card Hunter','Trade Tracker','Binder Builder','Elite Collector','Market Maven','Trade Master','Card Champion','Legendary Collector'];
+ const next=thresholds[level]||null,previous=thresholds[level-1]||0;
+ const listingCount=db.listings.filter(x=>x.ownerId===u.id).length;
+ const wantCount=db.wants.filter(x=>x.userId===u.id).length;
+ const badges=[];
+ if(u.profileSaved)badges.push({id:'profile',name:'Profile Polished',icon:'✨',description:'Saved your collector profile'});
+ if(listingCount>=1)badges.push({id:'first-card',name:'First Card Listed',icon:'🃏',description:'Added your first real card listing'});
+ if(listingCount>=5)badges.push({id:'five-cards',name:'Binder Builder',icon:'📚',description:'Published 5 card listings'});
+ if(wantCount>=1)badges.push({id:'wishlist',name:'On the Hunt',icon:'🔎',description:'Added a card to your wants'});
+ if(xp>=250)badges.push({id:'xp-250',name:'Collector Momentum',icon:'⚡',description:'Earned 250 XP'});
+ return {xp,level,title:titles[level-1]||'Legendary Collector',levelStartXp:previous,nextLevelXp:next,xpToNext:next===null?0:Math.max(0,next-xp),progressPercent:next===null?100:Math.min(100,Math.round((xp-previous)/(next-previous)*100)),listingCount,wantCount,badges};
+}
+function awardXp(u,amount,eventKey){
+ if(!Array.isArray(u.xpEvents))u.xpEvents=[];
+ if(u.xpEvents.some(x=>x.key===eventKey))return false;
+ u.xpEvents.push({key:eventKey,at:Date.now()});u.xp=Math.max(0,Number(u.xp)||0)+amount;
+ if(u.xpEvents.length>100)u.xpEvents=u.xpEvents.slice(-100);
+ save();return true;
+}
+function publicUser(u){return {id:u.id,name:u.name,location:u.location,profilePhoto:u.profilePhoto||'',createdAt:u.createdAt,progress:progressFor(u)}}
 function requireUser(req,res){const u=sessionFor(req);if(!u)json(res,401,{ok:false,error:'LOGIN_REQUIRED'});return u}
 function sameOrigin(req){if(!req.headers.origin)return true;try{return new URL(req.headers.origin).host===(req.headers['x-forwarded-host']||req.headers.host)}catch{return false}}
 function sendFile(res,file,type){fs.readFile(file,(e,b)=>{if(e){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'content-type':type,'cache-control':'no-cache','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; frame-ancestors 'none'"});res.end(b)})}
@@ -41,7 +63,7 @@ if(name.length<2)return json(res,400,{ok:false,error:'NAME_MUST_BE_AT_LEAST_2_CH
 if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json(res,400,{ok:false,error:'VALID_EMAIL_REQUIRED'});
 if(typeof password!=='string'||password.length<10||password.length>200)return json(res,400,{ok:false,error:'PASSWORD_MUST_BE_10_TO_200_CHARACTERS'});
 if(db.users.some(x=>x.email===email))return json(res,409,{ok:false,error:'EMAIL_ALREADY_REGISTERED'});
-const p=await hashPassword(password),user={id:id(12),name,location,email,passwordSalt:p.salt,passwordHash:p.hash,createdAt:Date.now()};
+const p=await hashPassword(password),user={id:id(12),name,location,email,passwordSalt:p.salt,passwordHash:p.hash,createdAt:Date.now(),xp:25,xpEvents:[{key:'welcome',at:Date.now()}],profileSaved:false,firstListingAwarded:false,firstWantAwarded:false};
 db.users.push(user);createSession(req,res,user);return json(res,201,{ok:true,user:publicUser(user)});
 }
 if(u.pathname==='/api/login'&&req.method==='POST'){
@@ -53,8 +75,8 @@ if(got.length!==expected.length||!crypto.timingSafeEqual(got,expected))return js
 createSession(req,res,user);return json(res,200,{ok:true,user:publicUser(user)});
 }
 if(u.pathname==='/api/logout'&&req.method==='POST'){const token=cookie(req,'tgc_session');if(token){const h=crypto.createHash('sha256').update(token).digest('hex');db.sessions=db.sessions.filter(s=>s.tokenHash!==h);save()}res.setHeader('Set-Cookie',cookieHeader(req,'',0));return json(res,200,{ok:true})}
-if(u.pathname==='/api/me'&&req.method==='GET'){const user=sessionFor(req);return user?json(res,200,{ok:true,user:publicUser(user)}):json(res,401,{ok:false,error:'LOGIN_REQUIRED'})}
-if(u.pathname==='/api/profile'&&req.method==='PATCH'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,12000),name=clean(d.name,60);if(name.length<2)return json(res,400,{ok:false,error:'NAME_MUST_BE_AT_LEAST_2_CHARACTERS'});user.name=name;user.location=clean(d.location,80)||'Philippines';save();return json(res,200,{ok:true,user:publicUser(user)})}
+if(u.pathname==='/api/me'&&req.method==='GET'){const user=sessionFor(req);return user?json(res,200,{ok:true,user:publicUser(user)}):json(res,401,{ok:false,error:'LOGIN_REQUIRED'})}\n if(u.pathname==='/api/progress'&&req.method==='GET'){const user=requireUser(req,res);if(!user)return;return json(res,200,{ok:true,progress:progressFor(user)})}
+if(u.pathname==='/api/profile'&&req.method==='PATCH'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,12000),name=clean(d.name,60);if(name.length<2)return json(res,400,{ok:false,error:'NAME_MUST_BE_AT_LEAST_2_CHARACTERS'});user.name=name;user.location=clean(d.location,80)||'Philippines';if(!user.profileSaved){user.profileSaved=true;user.xp=(Number(user.xp)||0)+50;if(!Array.isArray(user.xpEvents))user.xpEvents=[];user.xpEvents.push({key:'profile-saved',at:Date.now()})}save();return json(res,200,{ok:true,user:publicUser(user)})}
 if(u.pathname==='/api/profile/photo'&&req.method==='POST'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,5000000),photo=d.image;if(!photo||typeof photo.data!=='string')return json(res,400,{ok:false,error:'PROFILE_PHOTO_REQUIRED'});const ext=mimeExt(photo.type);if(!['jpg','png','webp'].includes(ext))return json(res,400,{ok:false,error:'PROFILE_PHOTO_MUST_BE_JPEG_PNG_OR_WEBP'});const buf=Buffer.from(photo.data,'base64');if(buf.length>3*1024*1024)return json(res,413,{ok:false,error:'PROFILE_PHOTO_TOO_LARGE'});const valid=(ext==='jpg'&&buf[0]===255&&buf[1]===216)||(ext==='png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(ext==='webp'&&buf.toString('ascii',8,12)==='WEBP');if(!valid)return json(res,400,{ok:false,error:'INVALID_PROFILE_PHOTO'});const fn='profile-'+user.id+'.'+ext;fs.writeFileSync(path.join(UPLOADS,fn),buf);user.profilePhoto='/uploads/'+fn+'?v='+Date.now();save();return json(res,200,{ok:true,user:publicUser(user)})}
 if(u.pathname.startsWith('/api/community/members/')&&req.method==='GET'){const memberId=decodeURIComponent(u.pathname.split('/').pop());const member=db.users.find(x=>x.id===memberId);if(!member)return json(res,404,{ok:false,error:'MEMBER_NOT_FOUND'});return json(res,200,{ok:true,member:publicUser(member),listings:db.listings.filter(x=>x.ownerId===member.id).slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(listingView)})}
 if(u.pathname==='/api/community/members'&&req.method==='GET'){const members=db.users.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(u=>({...publicUser(u),listingCount:db.listings.filter(x=>x.ownerId===u.id).length}));return json(res,200,{ok:true,members})}
@@ -65,12 +87,12 @@ if(u.pathname==='/api/listings'&&req.method==='POST'){
 const user=requireUser(req,res);if(!user)return;const d=await readBody(req,12000000),name=clean(d.name,120);if(!name)return json(res,400,{ok:false,error:'CARD_NAME_REQUIRED'});
 const item={id:id(10),ownerId:user.id,name,set:clean(d.set,120),price:Math.max(0,Number(d.price)||0),mode:['Sale','Trade','Both'].includes(d.mode)?d.mode:'Both',condition:clean(d.condition,60)||'Near Mint',location:user.location,seller:user.name,description:clean(d.description,1200),wants:clean(d.wants,500),photo:'',mediaType:'image',createdAt:Date.now()};
 if(d.image&&typeof d.image==='object'&&typeof d.image.data==='string'){const ext=mimeExt(d.image.type);if(!ext)return json(res,400,{ok:false,error:'MEDIA_TYPE_NOT_SUPPORTED'});const video=['mp4','webm','mov'].includes(ext),buf=Buffer.from(d.image.data,'base64'),maxBytes=video?8*1024*1024:5*1024*1024;if(buf.length>maxBytes)return json(res,413,{ok:false,error:video?'VIDEO_TOO_LARGE':'IMAGE_TOO_LARGE'});const valid=(ext==='jpg'&&buf[0]===255&&buf[1]===216)||(ext==='png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(ext==='webp'&&buf.toString('ascii',8,12)==='WEBP')||(['mp4','mov'].includes(ext)&&buf.toString('ascii',4,8)==='ftyp')||(ext==='webm'&&buf.subarray(0,4).equals(Buffer.from([26,69,223,163])));if(!valid)return json(res,400,{ok:false,error:'MEDIA_CONTENT_DOES_NOT_MATCH_TYPE'});const fn=item.id+'-'+clean(d.image.name,80).replace(/[^a-zA-Z0-9._-]+/g,'-').slice(0,80)+'.'+ext;fs.writeFileSync(path.join(UPLOADS,fn),buf);item.photo='/uploads/'+fn;item.mediaType=video?'video':'image'}
-db.listings.push(item);save();return json(res,201,{ok:true,listing:listingView(item)});
+db.listings.push(item);if(item.photo&&!user.firstListingAwarded){user.firstListingAwarded=true;awardXp(user,25,'first-listing')}else save();return json(res,201,{ok:true,listing:listingView(item),progress:progressFor(user)});
 }
 if(u.pathname.startsWith('/api/listings/')&&req.method==='GET'){const item=db.listings.find(x=>x.id===decodeURIComponent(u.pathname.split('/').pop()));return item?json(res,200,{ok:true,listing:listingView(item)}):json(res,404,{ok:false,error:'NOT_FOUND'})}
 if(u.pathname.startsWith('/api/listings/')&&req.method==='DELETE'){const user=requireUser(req,res);if(!user)return;const key=decodeURIComponent(u.pathname.split('/').pop()),item=db.listings.find(x=>x.id===key);if(!item)return json(res,404,{ok:false,error:'NOT_FOUND'});if(item.ownerId!==user.id)return json(res,403,{ok:false,error:'NOT_YOUR_LISTING'});db.listings=db.listings.filter(x=>x.id!==key);save();return json(res,200,{ok:true})}
 if(u.pathname==='/api/wants'&&req.method==='GET'){const user=requireUser(req,res);if(!user)return;return json(res,200,{ok:true,wants:db.wants.filter(x=>x.userId===user.id).map(x=>x.want)})}
-if(u.pathname==='/api/wants'&&req.method==='POST'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,10000),want=clean(d.want,120);if(!want)return json(res,400,{ok:false,error:'WANT_REQUIRED'});if(!db.wants.some(x=>x.userId===user.id&&x.want.toLowerCase()===want.toLowerCase()))db.wants.push({userId:user.id,want});save();return json(res,201,{ok:true,wants:db.wants.filter(x=>x.userId===user.id).map(x=>x.want)})}
+if(u.pathname==='/api/wants'&&req.method==='POST'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,10000),want=clean(d.want,120);if(!want)return json(res,400,{ok:false,error:'WANT_REQUIRED'});if(!db.wants.some(x=>x.userId===user.id&&x.want.toLowerCase()===want.toLowerCase()))db.wants.push({userId:user.id,want});if(!user.firstWantAwarded){user.firstWantAwarded=true;awardXp(user,10,'first-want')}else save();return json(res,201,{ok:true,wants:db.wants.filter(x=>x.userId===user.id).map(x=>x.want),progress:progressFor(user)})}
 if(u.pathname==='/api/wants'&&req.method==='DELETE'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,10000);db.wants=db.wants.filter(x=>!(x.userId===user.id&&x.want===d.want));save();return json(res,200,{ok:true,wants:db.wants.filter(x=>x.userId===user.id).map(x=>x.want)})}
 if(u.pathname.startsWith('/uploads/')){const file=path.basename(decodeURIComponent(u.pathname));return sendFile(res,path.join(UPLOADS,file),contentType(file))}
 const rel=u.pathname==='/'?'index.html':decodeURIComponent(u.pathname.slice(1)),file=path.resolve(PUBLIC,rel);if(file!==PUBLIC&&!file.startsWith(PUBLIC+path.sep)){res.writeHead(403);return res.end('Forbidden')}return sendFile(res,file,contentType(file));
