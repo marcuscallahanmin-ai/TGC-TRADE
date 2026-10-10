@@ -25,7 +25,7 @@ function publicUser(u){return {id:u.id,name:u.name,location:u.location,profilePh
 function requireUser(req,res){const u=sessionFor(req);if(!u)json(res,401,{ok:false,error:'LOGIN_REQUIRED'});return u}
 function sameOrigin(req){if(!req.headers.origin)return true;try{return new URL(req.headers.origin).host===(req.headers['x-forwarded-host']||req.headers.host)}catch{return false}}
 function sendFile(res,file,type){fs.readFile(file,(e,b)=>{if(e){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'content-type':type,'cache-control':'no-cache','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; frame-ancestors 'none'"});res.end(b)})}
-function contentType(f){return ({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.mov':'video/quicktime'}[path.extname(f).toLowerCase()]||'application/octet-stream')}
+function contentType(f){return ({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime'}[path.extname(f).toLowerCase()]||'application/octet-stream')}
 function listingView(x){const {ownerId,...v}=x;return {...v,photo:x.photo||''}}
 const attempts=new Map();
 function limited(k){const now=Date.now(),a=(attempts.get(k)||[]).filter(t=>now-t<600000);if(a.length>=10)return true;a.push(now);attempts.set(k,a);return false}
