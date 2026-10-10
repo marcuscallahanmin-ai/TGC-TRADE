@@ -22,7 +22,7 @@ window.toggleTgcSound=function(){
  var b=document.getElementById('tgcSoundToggle');if(b)b.textContent=muted?'🔇 Sound Off':'🔊 Sound On';
  if(!muted)sound('bink');
 };
-function xpData(){return (window.profile&&profile.progress)||((window.currentUser&&currentUser.progress)||null)}
+function xpData(){return (typeof profile!=='undefined'&&profile.progress)||((typeof currentUser!=='undefined'&&currentUser.progress)||null)}
 function escText(v){return typeof window.esc==='function'?esc(v):String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function panel(p){
  if(!p)return '';
@@ -73,6 +73,7 @@ function wrapAction(name,kind){
  var wrapped=async function(){
   var before=Number(xpData()&&xpData().xp)||0;
   var result=await original.apply(this,arguments);
+  try{var fresh=await api('/api/progress');if(typeof profile!=='undefined')profile.progress=fresh.progress;if(typeof currentUser!=='undefined')currentUser.progress=fresh.progress}catch(e){}
   var after=Number(xpData()&&xpData().xp)||0;
   if(after>before)rewardToast('+'+(after-before)+' XP · Nice move!');
   else if(kind)sound(kind);
