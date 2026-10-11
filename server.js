@@ -9,7 +9,7 @@ const ROOT = __dirname, PUBLIC = path.join(ROOT,'public'), UPLOADS = process.env
 const SESSION_MS = 7*24*60*60*1000;
 fs.mkdirSync(UPLOADS,{recursive:true});
 const seed=[];
-function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings.filter(x=>!/^seed-\d+$/.test(String(x.id||''))):seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[]}}}
+function load(){try{const d=JSON.parse(fs.readFileSync(DATA_FILE,'utf8'));return {listings:Array.isArray(d.listings)?d.listings.filter(x=>!/^seed-\d+$/.test(String(x.id||''))):seed,wants:Array.isArray(d.wants)?d.wants:[],users:Array.isArray(d.users)?d.users:[],sessions:Array.isArray(d.sessions)?d.sessions:[],passwordResets:Array.isArray(d.passwordResets)?d.passwordResets:[]}}catch{return {listings:seed,wants:[],users:[],sessions:[],passwordResets:[]}}}
 let db=load();
 function save(){const t=DATA_FILE+'.tmp';fs.writeFileSync(t,JSON.stringify(db),{mode:0o600});fs.renameSync(t,DATA_FILE)}
 function id(n=24){return crypto.randomBytes(n).toString('hex')}
@@ -73,6 +73,37 @@ if(!user||!password||password.length>200)return json(res,401,{ok:false,error:'IN
 const got=await scrypt(password,user.passwordSalt,64),expected=Buffer.from(user.passwordHash,'hex');
 if(got.length!==expected.length||!crypto.timingSafeEqual(got,expected))return json(res,401,{ok:false,error:'INVALID_EMAIL_OR_PASSWORD'});
 createSession(req,res,user);return json(res,200,{ok:true,user:publicUser(user)});
+}
+if(u.pathname==='/api/password/forgot'&&req.method==='POST'){
+const ip=clean(req.headers['x-forwarded-for']||req.socket.remoteAddress||'unknown',100).split(',')[0].trim();
+if(limited('pwreset:'+ip))return json(res,200,{ok:true,message:'If an account exists for that email, a reset link will be sent.'});
+const d=await readBody(req,12000),email=clean(d.email,254).toLowerCase();
+const generic={ok:true,message:'If an account exists for that email, a reset link will be sent.'};
+if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return json(res,200,generic);
+const user=db.users.find(x=>x.email===email);
+if(!user||!process.env.RESEND_API_KEY||!process.env.RESEND_FROM_EMAIL)return json(res,200,generic);
+const token=id(32),tokenHash=crypto.createHash('sha256').update(token).digest('hex'),now=Date.now();
+db.passwordResets=db.passwordResets.filter(x=>x.expiresAt>now&&x.userId!==user.id);
+db.passwordResets.push({userId:user.id,tokenHash,expiresAt:now+30*60*1000,createdAt:now});save();
+const base=(process.env.APP_URL||'https://tgc-trade.onrender.com').replace(/\/$/,'');
+const resetUrl=base+'/#/reset-password?token='+encodeURIComponent(token);
+try{
+const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'Authorization':'Bearer '+process.env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:process.env.RESEND_FROM_EMAIL,to:[user.email],subject:'Reset your TGC TRADE password',text:'We received a request to reset your TGC TRADE password. This link expires in 30 minutes and can only be used once. If you did not request this, ignore this email.\n\nReset your password: '+resetUrl,html:'<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#202433"><h1>Reset your TGC TRADE password</h1><p>We received a request to reset your password.</p><p>This link expires in 30 minutes and can only be used once.</p><p><a href="'+resetUrl+'" style="display:inline-block;padding:12px 18px;background:#6758e8;color:white;text-decoration:none;border-radius:8px">Reset password</a></p><p>If you did not request this, you can safely ignore this email.</p></div>'})});
+if(!response.ok){const detail=await response.text();console.error('Resend password reset email failed:',response.status,detail.slice(0,300));db.passwordResets=db.passwordResets.filter(x=>x.tokenHash!==tokenHash);save();}
+}catch(err){console.error('Password reset email delivery failed:',err.message);db.passwordResets=db.passwordResets.filter(x=>x.tokenHash!==tokenHash);save();}
+return json(res,200,generic);
+}
+if(u.pathname==='/api/password/reset'&&req.method==='POST'){
+const d=await readBody(req,12000),token=clean(d.token,200),password=typeof d.password==='string'?d.password:'';
+if(password.length<10||password.length>200)return json(res,400,{ok:false,error:'PASSWORD_MUST_BE_10_TO_200_CHARACTERS'});
+if(!token)return json(res,400,{ok:false,error:'RESET_LINK_INVALID_OR_EXPIRED'});
+const tokenHash=crypto.createHash('sha256').update(token).digest('hex'),entry=db.passwordResets.find(x=>x.tokenHash===tokenHash&&x.expiresAt>Date.now());
+if(!entry)return json(res,400,{ok:false,error:'RESET_LINK_INVALID_OR_EXPIRED'});
+const user=db.users.find(x=>x.id===entry.userId);if(!user){db.passwordResets=db.passwordResets.filter(x=>x.tokenHash!==tokenHash);save();return json(res,400,{ok:false,error:'RESET_LINK_INVALID_OR_EXPIRED'})}
+const p=await hashPassword(password);user.passwordSalt=p.salt;user.passwordHash=p.hash;
+db.sessions=db.sessions.filter(s=>s.userId!==user.id);
+db.passwordResets=db.passwordResets.filter(x=>x.userId!==user.id);
+save();res.setHeader('Set-Cookie',cookieHeader(req,'',0));return json(res,200,{ok:true,message:'Password updated. Please sign in with your new password.'});
 }
 if(u.pathname==='/api/logout'&&req.method==='POST'){const token=cookie(req,'tgc_session');if(token){const h=crypto.createHash('sha256').update(token).digest('hex');db.sessions=db.sessions.filter(s=>s.tokenHash!==h);save()}res.setHeader('Set-Cookie',cookieHeader(req,'',0));return json(res,200,{ok:true})}
 if(u.pathname==='/api/me'&&req.method==='GET'){const user=sessionFor(req);return user?json(res,200,{ok:true,user:publicUser(user)}):json(res,401,{ok:false,error:'LOGIN_REQUIRED'})}
