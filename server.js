@@ -43,8 +43,10 @@ function awardXp(u,amount,eventKey){
  if(u.xpEvents.length>100)u.xpEvents=u.xpEvents.slice(-100);
  save();return true;
 }
-function publicUser(u){return {id:u.id,name:u.name,location:u.location,profilePhoto:u.profilePhoto||'',createdAt:u.createdAt,progress:progressFor(u)}}
+function isAdmin(u){const configured=clean(process.env.ADMIN_EMAIL,254).toLowerCase();return !!u&&!!configured&&clean(u.email,254).toLowerCase()===configured}
+function publicUser(u){return {id:u.id,name:u.name,location:u.location,profilePhoto:u.profilePhoto||'',createdAt:u.createdAt,isAdmin:isAdmin(u),progress:progressFor(u)}}
 function requireUser(req,res){const u=sessionFor(req);if(!u)json(res,401,{ok:false,error:'LOGIN_REQUIRED'});return u}
+function requireAdmin(req,res){const user=sessionFor(req);if(!user){json(res,401,{ok:false,error:'LOGIN_REQUIRED'});return null}if(!isAdmin(user)){json(res,403,{ok:false,error:'ADMIN_ACCESS_REQUIRED'});return null}return user}
 function sameOrigin(req){if(!req.headers.origin)return true;try{return new URL(req.headers.origin).host===(req.headers['x-forwarded-host']||req.headers.host)}catch{return false}}
 function sendFile(res,file,type){fs.readFile(file,(e,b)=>{if(e){res.writeHead(404);return res.end('Not found')}res.writeHead(200,{'content-type':type,'cache-control':'no-cache','x-content-type-options':'nosniff','content-security-policy':"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; frame-ancestors 'none'"});res.end(b)})}
 function contentType(f){return ({'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json','.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.webp':'image/webp','.mp4':'video/mp4','.webm':'video/webm','.mov':'video/quicktime'}[path.extname(f).toLowerCase()]||'application/octet-stream')}
@@ -107,6 +109,18 @@ save();res.setHeader('Set-Cookie',cookieHeader(req,'',0));return json(res,200,{o
 }
 if(u.pathname==='/api/logout'&&req.method==='POST'){const token=cookie(req,'tgc_session');if(token){const h=crypto.createHash('sha256').update(token).digest('hex');db.sessions=db.sessions.filter(s=>s.tokenHash!==h);save()}res.setHeader('Set-Cookie',cookieHeader(req,'',0));return json(res,200,{ok:true})}
 if(u.pathname==='/api/me'&&req.method==='GET'){const user=sessionFor(req);return user?json(res,200,{ok:true,user:publicUser(user)}):json(res,401,{ok:false,error:'LOGIN_REQUIRED'})}
+ if(u.pathname==='/api/admin/overview'&&req.method==='GET'){
+const admin=requireAdmin(req,res);if(!admin)return;
+const members=db.users.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(x=>({id:x.id,name:x.name,email:x.email,location:x.location||'',createdAt:x.createdAt,listingCount:db.listings.filter(l=>l.ownerId===x.id).length,xp:Number(x.xp)||0,isAdmin:isAdmin(x)}));
+const adminListings=db.listings.slice().sort((a,b)=>(b.createdAt||0)-(a.createdAt||0)).map(x=>({...listingView(x),sellerEmail:(db.users.find(u=>u.id===x.ownerId)||{}).email||'',sellerName:x.seller||((db.users.find(u=>u.id===x.ownerId)||{}).name)||'Unknown collector'}));
+return json(res,200,{ok:true,stats:{members:db.users.length,listings:db.listings.length,wants:db.wants.length,admins:db.users.filter(isAdmin).length},members,listings:adminListings});
+}
+if(u.pathname.startsWith('/api/admin/listings/')&&req.method==='DELETE'){
+const admin=requireAdmin(req,res);if(!admin)return;
+const key=decodeURIComponent(u.pathname.split('/').pop()),item=db.listings.find(x=>x.id===key);if(!item)return json(res,404,{ok:false,error:'LISTING_NOT_FOUND'});
+if(item.photo&&item.photo.startsWith('/uploads/')){try{fs.unlinkSync(path.join(UPLOADS,path.basename(item.photo.split('?')[0])))}catch{}}
+db.listings=db.listings.filter(x=>x.id!==key);save();return json(res,200,{ok:true});
+}
  if(u.pathname==='/api/progress'&&req.method==='GET'){const user=requireUser(req,res);if(!user)return;return json(res,200,{ok:true,progress:progressFor(user)})}
 if(u.pathname==='/api/profile'&&req.method==='PATCH'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,12000),name=clean(d.name,60);if(name.length<2)return json(res,400,{ok:false,error:'NAME_MUST_BE_AT_LEAST_2_CHARACTERS'});user.name=name;user.location=clean(d.location,80)||'Philippines';if(!user.profileSaved){user.profileSaved=true;user.xp=(Number(user.xp)||0)+50;if(!Array.isArray(user.xpEvents))user.xpEvents=[];user.xpEvents.push({key:'profile-saved',at:Date.now()})}save();return json(res,200,{ok:true,user:publicUser(user)})}
 if(u.pathname==='/api/profile/photo'&&req.method==='POST'){const user=requireUser(req,res);if(!user)return;const d=await readBody(req,5000000),photo=d.image;if(!photo||typeof photo.data!=='string')return json(res,400,{ok:false,error:'PROFILE_PHOTO_REQUIRED'});const ext=mimeExt(photo.type);if(!['jpg','png','webp'].includes(ext))return json(res,400,{ok:false,error:'PROFILE_PHOTO_MUST_BE_JPEG_PNG_OR_WEBP'});const buf=Buffer.from(photo.data,'base64');if(buf.length>3*1024*1024)return json(res,413,{ok:false,error:'PROFILE_PHOTO_TOO_LARGE'});const valid=(ext==='jpg'&&buf[0]===255&&buf[1]===216)||(ext==='png'&&buf.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))||(ext==='webp'&&buf.toString('ascii',8,12)==='WEBP');if(!valid)return json(res,400,{ok:false,error:'INVALID_PROFILE_PHOTO'});const fn='profile-'+user.id+'.'+ext;fs.writeFileSync(path.join(UPLOADS,fn),buf);user.profilePhoto='/uploads/'+fn+'?v='+Date.now();save();return json(res,200,{ok:true,user:publicUser(user)})}
