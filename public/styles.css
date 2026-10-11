@@ -65,3 +65,7 @@ main{max-width:1180px;margin:auto;padding:30px 20px 90px}.hero{display:grid;grid
 @media(prefers-reduced-motion:reduce){.tgc-xp-track span,.tgc-reward-pop,.tgc-reward-pop .tgc-xp-panel{animation:none;transition:none}}
 
 @media(max-width:620px){.header-actions .tgc-sound-toggle{display:inline-flex;white-space:nowrap}.header-actions{gap:8px}}
+
+
+/* Private administrator dashboard */
+.admin-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}.admin-table-wrap{overflow:auto}.admin-table{width:100%;border-collapse:collapse;font-size:13px}.admin-table th,.admin-table td{text-align:left;padding:12px;border-bottom:1px solid var(--line);white-space:nowrap}.admin-table th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.6px}.admin-listings{display:grid;gap:10px}.admin-listing{display:flex;justify-content:space-between;align-items:center;gap:16px}.btn.danger{background:rgba(255,93,115,.12);border-color:rgba(255,93,115,.5);color:#ff9aa9}@media(max-width:620px){.admin-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-listing{align-items:flex-start;flex-direction:column}}
